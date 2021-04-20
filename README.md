@@ -1,6 +1,6 @@
 # Alpha-XIC
 
-Alpha-XIC is a deep neural network to score the coelution of peak groups which improve the identification of DIA data.
+Alpha-XIC is a deep neural network to score the coelution of peak groups which improves the identification of DIA data.
 
 ## Hardware
 

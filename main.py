@@ -44,7 +44,7 @@ if __name__ == '__main__':
     alpha_cols = osw_cols + ['var_alpha_xic_score']
     mzml = ms.load_ms(ms_path, type='DIA')
 
-    # 前处理
+    # preprocess the lib
     df_lib = utils.get_annos(df_lib)
 
     ## run pyprophet
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     # extract all xics
     t1 = time.time()
     xics_bank, _ = utils.extract_xics(df_pypro, df_lib, mzml)
-    del mzml # 后续可能多进程
+    del mzml
     print('### extract xics_bank time: {:.2f}s'.format(time.time() - t1))
 
     id_num_old = utils.get_id_num(df_pypro)
@@ -89,12 +89,12 @@ if __name__ == '__main__':
         alpha_path = out_dir/('osw_output_alpha_' + str(i) + '.tsv')
         df_pypro[alpha_cols].to_csv(alpha_path, sep='\t', index=False)
 
-        ## 含alpha-score运行pyprophet，返回df_pypro
+        ## run pyprophet with alpha-xic-score，return df_pypro
         cmd = [str(alpha_path), r'--target.dir=' + str(out_dir/'pyprophet')]
         df_pypro = pyprophet_main._main(cmd, return_df=True)
         df_pypro['xic_idx'] = df_pypro.index.values
 
-        # 鉴定不增长就跳出循环
+        # condition check
         id_num_now = utils.get_id_num(df_pypro)
         if id_num_now < id_num_old:
             break

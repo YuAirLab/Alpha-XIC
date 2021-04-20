@@ -198,17 +198,21 @@ def get_id_num(df):
 def extract_xics(df_pypro, df_annos, mzml):
     pd.options.mode.chained_assignment = None
 
-    '根据传入的df_pypro得到正负样本的起止时刻，根据df_lib得到每个pr的annos，由两者从mzml中提取xic'
+    '''
+    get the boundaries of peak groups by df_pypro
+    get fragment mz by df_lib
+    then extract the xic in mzML
+    '''
     df_merge = pd.merge(df_pypro, df_annos,
                         left_on=['FullPeptideName', 'Charge'],
                         right_on=['FullUniModPeptideName', 'PrecursorCharge'])
 
     xics_v = []
 
-    # 此处包含np的广播运算，小心内存使用爆炸，使用batch
+    # broadcast with batch
     for _, df in df_merge.groupby(df_merge.index // 100000):
         print('\rextract xics: {}/{} finished'.format(df.index[-1] + 1, len(df_merge)), end='', flush=True)
-        # 先要使用向量化操作快速计算一些辅助值
+        # vectorization
         scans_ms1_rt = mzml.get_ms1_all_rt()
         num_windows = len(mzml.SwathSettings) - 1
         df['query_rt_left'] = df['leftWidth'] - predifine.extend_time
@@ -220,7 +224,6 @@ def extract_xics(df_pypro, df_annos, mzml):
                 num_windows + 1)
         df['ms2_win_idx'] = np.digitize(df['m/z'], mzml.SwathSettings)
 
-        # 提取xic如果直接从df里面取元素，太慢了
         query_mz_v = df['ProductMz'].explode().to_numpy(dtype=np.float32)
         fg_num_v = df['fg_num'].to_numpy()
         fg_idx_v = [0]
@@ -263,7 +266,7 @@ def get_pos_neg_xic(df_pypro, xics_bank, idx_neg):
 
     df = pd.concat([df_pos, df_neg], axis=0, ignore_index=False)
 
-    # extract: 提取原始值并先插值到固定维度，再滤波，norm
+    # extract
     idx = df['xic_idx'].values
     xics = xics_bank[idx]
 

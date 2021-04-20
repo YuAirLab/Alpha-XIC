@@ -2,7 +2,7 @@
 # -*- coding:utf-8 -*-
 '''
 @File   :   ms.py
-@Author :   馒头
+@Author :   Song
 @Time   :   2020/1/20 9:41
 @Contact:   songjian@westlake.edu.cn
 @intro  :   class about reading, processing the mzML
@@ -202,22 +202,18 @@ class mz_Reader():
             return (float(middle - lower_offset), float(middle + upper_offset))
 
     def __init_swath_window_array(self):
-        """
-        返回一个array，表示的是isolation window的起始
-        :return:
-        """
         if len(self.SwathSettings) == 0:
             swath = []
-            # 从一个完整cycle开始，此处idx表示的原始scan idx，不是过滤scan后的idx
+            # from the start of cycle，idx means the raw scan idx
             while True:
                 idx = np.random.choice(len(self.raw_ms1_idx) - 2)
                 if self.raw_ms1_idx[idx+1] - self.raw_ms1_idx[idx] == self.windows_num + 1:
                     break
 
-            idx_start = self.raw_ms1_idx[idx] + 1 # 从ms2开始
+            idx_start = self.raw_ms1_idx[idx] + 1 # from ms2
             idx_end = self.raw_ms1_idx[idx+1]
 
-            # 遍历一个cycle，获取swath窗口设置
+            # traverse the cycle and get swath windows setup
             while idx_start < idx_end:
                 swath_windom = self.get_current_scan_window(idx_start)
                 if swath_windom not in swath:
@@ -226,9 +222,9 @@ class mz_Reader():
             self.swath_pair = swath
             swath = np.array([_ for item in swath for _ in item])
 
-            # 还需要重合overlap
+            # overlap
             result = []
-            if np.min(np.diff(swath)) < 0:  # 有负即为overlap
+            if np.min(np.diff(swath)) < 0:
                 result.append(swath[0])
                 idx = 1
                 while idx + 1 < len(swath) - 1:
@@ -236,7 +232,7 @@ class mz_Reader():
                     idx += 2
                 result.append(swath[-1])
                 self.SwathSettings = np.array(result)
-            elif np.min(np.diff(swath)) == 0:  # 不存在overlap
+            elif np.min(np.diff(swath)) == 0:  
                 self.SwathSettings = np.sort(np.unique(swath))
 
     @profile

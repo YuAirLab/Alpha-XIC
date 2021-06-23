@@ -22,7 +22,7 @@ class Model_Dataset(Dataset):
 
         self.type = type
 
-        # convert to numpy
+        # to numpy
         self.xics = xics
         self.xics_len = xics_len
 
@@ -39,13 +39,11 @@ class Model_Dataset(Dataset):
         idx_start = self.row_idx[idx]
         idx_end = self.row_idx[idx+1]
 
-        # process traces series
         xic = self.xics[idx_start : idx_end]
         y = self.y[idx]
 
         # shuffle
         if self.type == 'train':
             np.random.shuffle(xic)
-            # xic = xic[::-1, :]
 
         return (xic, xic.shape[0], y)

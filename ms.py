@@ -5,21 +5,24 @@
 @Author :   Song
 @Time   :   2020/1/20 9:41
 @Contact:   songjian@westlake.edu.cn
-@intro  :   class about reading, processing the mzML
+@intro  :   class about mzML
 '''
 import time
 import numpy as np
 import multiprocessing as mp
 from decimal import Decimal
+
 import pyteomics.mzxml
 import pyteomics.mzml
 import pyteomics.mass
-from pyprophet.optimized import sj_find_ok_matches
+
+import utils
 
 try:
     profile
 except NameError:
     profile = lambda x: x
+
 
 class mz_Reader():
 
@@ -54,8 +57,11 @@ class mz_Reader():
             self.check()
 
     def check(self):
-        'MS1+N-MS2'
+        '''must one MS1, and N MS2'''
         assert len(self.all_levels) % len(self.SwathSettings) == 0, 'Swath scan nums != K*(MS1+N-MS2)'
+
+    def get_mz_suffix(self):
+        return self.suffix
 
     def get_time_unit(self):
         if self.suffix == 'mzxml':
@@ -69,7 +75,7 @@ class mz_Reader():
             else:
                 self.TimeUnit = 'second'
 
-    def process_worker(self, idx_start, idx_end): # 作为进程worker不能私有
+    def process_worker(self, idx_start, idx_end):
         rts, levels, peaks_mz, peaks_intensity = [], [], [], []
 
         for idx in range(idx_start, idx_end):
@@ -93,10 +99,10 @@ class mz_Reader():
         process_num = int(cpu_num / 2)  # default cores / 2
         process_num = 8 if process_num >= 8 else process_num
         pool = mp.Pool(process_num)
-        slices = np.ceil(np.linspace(0, len(self.mz), process_num+1)).astype(int)
+        slices = np.ceil(np.linspace(0, len(self.mz), process_num + 1)).astype(int)
 
-        results = [pool.apply_async(self.process_worker, args=(slices[i], slices[i+1])) for i in range(process_num)]
-        results = [r.get() for r in results] # result is dict
+        results = [pool.apply_async(self.process_worker, args=(slices[i], slices[i + 1])) for i in range(process_num)]
+        results = [r.get() for r in results]
         pool.close()
         pool.join()
 
@@ -112,23 +118,22 @@ class mz_Reader():
         self.all_intensity = np.array(self.all_intensity)
 
         if self.acquisition_type == 'DIA':
-            # get MS2 window number
+            # MS2 window：
             self.raw_ms1_idx = np.where(self.all_levels == 1)[0]
             cycles_ms2_num = np.diff(self.raw_ms1_idx) - 1
             self.windows_num = np.bincount(cycles_ms2_num).argmax()
 
-            # remove incomplete cycle
             bad_slice = []
 
-            # boundary 1：start of cycle
+            # start
             if self.raw_ms1_idx[0] != 0:
                 bad_slice.extend(range(0, self.raw_ms1_idx[0]))
-            # boundary 2：end of cycle
+            # end
             if len(self.mz) - self.raw_ms1_idx[-1] != self.windows_num + 1:
                 bad_slice.extend(range(self.raw_ms1_idx[-1], len(self.mz)))
-            # others cycle
+            # other
             for cycle_idx in np.where(cycles_ms2_num != self.windows_num)[0]:
-                bad_slice.extend(range(self.raw_ms1_idx[cycle_idx], self.raw_ms1_idx[cycle_idx+1]))
+                bad_slice.extend(range(self.raw_ms1_idx[cycle_idx], self.raw_ms1_idx[cycle_idx + 1]))
 
             if len(bad_slice) > 0:
                 good_slice = np.arange(len(self.all_levels))
@@ -139,8 +144,9 @@ class mz_Reader():
                 self.all_mz = self.all_mz[good_slice]
                 self.all_intensity = self.all_intensity[good_slice]
 
-            # assign non-sense values to empty
+            # empty scan
             all_scans_len = np.array(list(map(len, self.all_mz)), dtype=np.int32)
+            zero_scan_num = (all_scans_len == 0).sum()
             for zero_idx in np.where(all_scans_len == 0)[0]:
                 self.all_mz[zero_idx] = np.array([888.], dtype=np.float32)
                 self.all_intensity[zero_idx] = np.array([0.], dtype=np.float32)
@@ -151,38 +157,10 @@ class mz_Reader():
         if self.TimeUnit == 'minute':
             self.all_rt = self.all_rt * 60.
 
-    def get_ms2_mz_range(self):
-        ms2_mz = self.all_mz[self.all_levels == 2]
-        ms2_mz_max = max(map(max, ms2_mz))
-        ms2_mz_min = min(map(min, ms2_mz))
-        return (ms2_mz_min, ms2_mz_max)
-
-    def get_scan_level(self, idx):
-        return self.all_levels[idx]
-
-    def get_scan_rt(self, idx):
-        """时间统一到second单位"""
-        return self.all_rt[idx]
-
     def get_ms1_all_rt(self):
         num_windows = len(self.SwathSettings) - 1
         scans_ms1_rt = self.all_rt[::(num_windows + 1)]
         return scans_ms1_rt
-
-    def get_scan_mz(self, idx):
-        return self.all_mz[idx]
-
-    def get_scan_intensity(self, idx):
-        return self.all_intensity[idx]
-
-    def get_scan_peaks(self, idx):
-        '''Peaks: [mz, intensity]'''
-        mz = self.get_scan_mz(idx)
-        inten = self.get_scan_intensity(idx)
-        return (mz, inten)
-
-    def get_scan_idx_by_rt(self, rt):
-        return int((np.abs(self.all_rt - rt).argmin()))
 
     def get_current_scan_window(self, idx):
         idx = int(idx)
@@ -204,16 +182,14 @@ class mz_Reader():
     def __init_swath_window_array(self):
         if len(self.SwathSettings) == 0:
             swath = []
-            # from the start of cycle，idx means the raw scan idx
             while True:
                 idx = np.random.choice(len(self.raw_ms1_idx) - 2)
-                if self.raw_ms1_idx[idx+1] - self.raw_ms1_idx[idx] == self.windows_num + 1:
+                if self.raw_ms1_idx[idx + 1] - self.raw_ms1_idx[idx] == self.windows_num + 1:
                     break
 
-            idx_start = self.raw_ms1_idx[idx] + 1 # from ms2
-            idx_end = self.raw_ms1_idx[idx+1]
+            idx_start = self.raw_ms1_idx[idx] + 1  # ms2
+            idx_end = self.raw_ms1_idx[idx + 1]
 
-            # traverse the cycle and get swath windows setup
             while idx_start < idx_end:
                 swath_windom = self.get_current_scan_window(idx_start)
                 if swath_windom not in swath:
@@ -224,7 +200,7 @@ class mz_Reader():
 
             # overlap
             result = []
-            if np.min(np.diff(swath)) < 0:
+            if np.min(np.diff(swath)) < 0:  # overlap
                 result.append(swath[0])
                 idx = 1
                 while idx + 1 < len(swath) - 1:
@@ -232,27 +208,46 @@ class mz_Reader():
                     idx += 2
                 result.append(swath[-1])
                 self.SwathSettings = np.array(result)
-            elif np.min(np.diff(swath)) == 0:  
+            elif np.min(np.diff(swath)) == 0:  # no overlap
                 self.SwathSettings = np.sort(np.unique(swath))
 
     @profile
-    def get_ms2_xics_by_fg_mz(self, idx_start, idx_end, ms2_win_idx, mz_query, ppm_tolerance=20.):
+    def get_ms1_ms2_xics_by_lib_mz(self, idx_start, idx_end, ms2_win_idx, query_mz, ppm_ms1, ppm_ms2):
+        """
+            query_pr_mz: M, M+1, M+2
+            query_fg_mz: M, frag_mz
+        """
+        query_pr_mz = query_mz[0:3]
+        query_fg_mz = query_mz[3:]
 
         num_windows = len(self.SwathSettings) - 1
 
-        # check for cycle
-        result_xics, result_rts = [], []
-        for cycle_idx, scan_idx in enumerate(range(idx_start, idx_end+1, num_windows+1)):
-            result_rts.append(self.all_rt[scan_idx])
+        result_ms1_xics, result_ms1_rts = [], []
+        result_ms2_xics, result_ms2_rts = [], []
+
+        for cycle_idx, scan_idx in enumerate(range(idx_start, idx_end + 1, num_windows + 1)):
+            # MS1
+            result_ms1_rts.append(self.all_rt[scan_idx])
+            peaks_mz = self.all_mz[scan_idx]
+            peaks_int = self.all_intensity[scan_idx]
+            xic_v_3 = utils.find_ok_matches(peaks_mz, peaks_int, query_pr_mz, ppm_ms1)
+            result_ms1_xics.append(xic_v_3)
+
+            # MS2
+            result_ms2_rts.append(self.all_rt[scan_idx + ms2_win_idx])
             peaks_mz = self.all_mz[scan_idx + ms2_win_idx]
             peaks_int = self.all_intensity[scan_idx + ms2_win_idx]
-            xic_v_6 = sj_find_ok_matches(peaks_mz, peaks_int, mz_query, ppm_tolerance)
-            result_xics.append(xic_v_6)
+            xic_v_6 = utils.find_ok_matches(peaks_mz, peaks_int, query_fg_mz, ppm_ms2)
+            result_ms2_xics.append(xic_v_6)
 
-        result_xics = np.array(result_xics).T
-        result_rts = np.array(result_rts)
+        result_ms1_xics = np.array(result_ms1_xics).T
+        result_ms1_rts = np.array(result_ms1_rts)
 
-        return result_xics, result_rts
+        result_ms2_xics = np.array(result_ms2_xics).T
+        result_ms2_rts = np.array(result_ms2_rts)
+
+        return result_ms1_xics, result_ms1_rts, result_ms2_xics, result_ms2_rts
+
 
 def load_ms(ms_file, type):
     start_time = time.time()

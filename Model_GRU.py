@@ -9,8 +9,8 @@
 '''
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, PackedSequence
 import predifine
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, PackedSequence
 
 class Model_GRU(nn.Module):
 
@@ -33,10 +33,10 @@ class Model_GRU(nn.Module):
         self.layer_norm = nn.LayerNorm(lstm_out_dim)
         self.fc = nn.Linear(lstm_out_dim, 2)
 
-    def forward(self, batch_xic, batch_fg_num):
+    def forward(self, batch_xic, batch_xic_num):
         # xic
         self.xic_gru.flatten_parameters()
-        batch_xic = pack_padded_sequence(batch_xic, batch_fg_num, batch_first=True, enforce_sorted=False)
+        batch_xic = pack_padded_sequence(batch_xic, batch_xic_num, batch_first=True, enforce_sorted=False)
         outputs, _ = self.xic_gru(batch_xic)
 
         '''attention'''

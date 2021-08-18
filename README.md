@@ -16,7 +16,7 @@ A [GPU with CUDA support](https://developer.nvidia.com/cuda-gpus)
 
 1. Compile the modified DIA-NN: 
     ```shell script
-    cd 'Alpha-XIC/diann_1.7.16_plus_alpha'
+    cd 'Alpha-XIC/diann_1.7.16_plus_alpha/mstoolkit'
     make
     ```
 2. Make a workspace folder containing:
